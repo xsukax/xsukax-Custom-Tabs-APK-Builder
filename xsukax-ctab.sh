@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# xsukax Custom Tabs APK Builder
+# xsukax Custom Tabs APK Builder (Enhanced Version)
 # Automatic dependency management for Debian-based systems
 # No external dependencies - uses Android's built-in Custom Tabs support
 # Custom icon support (icon.png)
@@ -31,7 +31,8 @@ print_banner() {
     echo -e "${CYAN}"
     echo "╔═══════════════════════════════════════════════════════════╗"
     echo "║                                                           ║"
-    echo "║         xsukax Custom Tabs APK Builder                    ║"
+    echo "║         xsukax Custom Tabs APK Builder v2.0               ║"
+    echo "║         Enhanced with Dependency Management               ║"
     echo "║                                                           ║"
     echo "║         Author: xsukax                                    ║"
     echo "║         No External Dependencies Required                 ║"
@@ -346,24 +347,46 @@ build_apk() {
     cat > src/main/AndroidManifest.xml << MANIFEST
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="$PACKAGE_NAME"
     android:versionCode="1"
     android:versionName="1.0">
 
     <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34" />
 
+    <!-- Internet permission -->
     <uses-permission android:name="android.permission.INTERNET" />
+    
+    <!-- File access permissions for all Android versions -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" 
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    
+    <!-- Android 13+ (API 33+) granular media permissions -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    
+    <!-- For accessing all files (Android 11+) -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" 
+        tools:ignore="ScopedStorage" />
 
     <application
         android:label="$APP_NAME"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/AppTheme"
-        android:hardwareAccelerated="true">
+        android:hardwareAccelerated="true"
+        android:requestLegacyExternalStorage="true"
+        android:preserveLegacyExternalStorage="true">
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTask">
+            android:launchMode="singleTask"
+            android:theme="@style/AppTheme"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:excludeFromRecents="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -401,6 +424,11 @@ STRINGS_NIGHT
     <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:colorPrimary">@color/toolbar_color</item>
         <item name="android:statusBarColor">@color/toolbar_color</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
     </style>
 </resources>
 STYLES
@@ -412,6 +440,7 @@ STYLES
     cat > "src/main/java/$PKG_PATH/MainActivity.java" << 'JAVACODE'
 package __PKG__;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
@@ -422,6 +451,8 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
 import android.view.WindowManager;
@@ -432,15 +463,24 @@ import java.util.List;
 
 public class MainActivity extends Activity {
     private static final String TAG = "CustomTabsApp";
+    private static final int PERMISSION_REQUEST_CODE = 1001;
+    private String pendingUrl;
+    private int pendingToolbarColor;
+    private boolean hasLaunchedBrowser = false;
     
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         
-        // Make this activity fullscreen and transparent
+        // Make this activity completely invisible and transparent
         getWindow().setFlags(
-            WindowManager.LayoutParams.FLAG_FULLSCREEN,
-            WindowManager.LayoutParams.FLAG_FULLSCREEN
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        );
+        
+        getWindow().setFlags(
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
         );
         
         if (Build.VERSION.SDK_INT >= 19) {
@@ -454,18 +494,107 @@ public class MainActivity extends Activity {
             );
         }
         
+        // Move to background immediately
+        moveTaskToBack(true);
+        
         String url = getString(getResources().getIdentifier("website_url", "string", getPackageName()));
         int toolbarColor = getResources().getColor(
             getResources().getIdentifier("toolbar_color", "color", getPackageName())
         );
         
-        launchCustomTab(url, toolbarColor);
+        // Check and request permissions before launching
+        if (checkAndRequestPermissions()) {
+            launchCustomTab(url, toolbarColor);
+        } else {
+            // Store for later launch after permissions granted
+            pendingUrl = url;
+            pendingToolbarColor = toolbarColor;
+        }
+    }
+    
+    private boolean checkAndRequestPermissions() {
+        List<String> permissionsNeeded = new ArrayList<>();
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // Android 13+ (API 33+) - Granular media permissions
+            if (checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) {
+                permissionsNeeded.add(Manifest.permission.READ_MEDIA_IMAGES);
+            }
+            if (checkSelfPermission(Manifest.permission.READ_MEDIA_VIDEO) != PackageManager.PERMISSION_GRANTED) {
+                permissionsNeeded.add(Manifest.permission.READ_MEDIA_VIDEO);
+            }
+            if (checkSelfPermission(Manifest.permission.READ_MEDIA_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                permissionsNeeded.add(Manifest.permission.READ_MEDIA_AUDIO);
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            // Android 6-12 (API 23-32)
+            if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                permissionsNeeded.add(Manifest.permission.READ_EXTERNAL_STORAGE);
+            }
+            if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                permissionsNeeded.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+            }
+        }
+        
+        // Request MANAGE_EXTERNAL_STORAGE for Android 11+ (API 30+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                try {
+                    Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                    intent.setData(Uri.parse("package:" + getPackageName()));
+                    startActivity(intent);
+                    Log.d(TAG, "Requesting MANAGE_EXTERNAL_STORAGE permission");
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to request MANAGE_EXTERNAL_STORAGE", e);
+                }
+            }
+        }
+        
+        if (!permissionsNeeded.isEmpty()) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                requestPermissions(permissionsNeeded.toArray(new String[0]), PERMISSION_REQUEST_CODE);
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            boolean allGranted = true;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false;
+                    break;
+                }
+            }
+            
+            if (allGranted) {
+                Log.d(TAG, "All permissions granted");
+            } else {
+                Log.w(TAG, "Some permissions denied, app may have limited functionality");
+            }
+            
+            // Launch regardless - browser will handle its own permissions
+            if (pendingUrl != null) {
+                launchCustomTab(pendingUrl, pendingToolbarColor);
+            }
+        }
     }
     
     private void launchCustomTab(String url, int toolbarColor) {
+        if (hasLaunchedBrowser) {
+            return; // Prevent multiple launches
+        }
+        hasLaunchedBrowser = true;
+        
         String packageName = getCustomTabsPackage();
         
-        // Build Custom Tabs intent with aggressive UI hiding
+        // Build Custom Tabs intent with file access support
         Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
         
         // Custom Tabs extras for minimal UI
@@ -483,18 +612,22 @@ public class MainActivity extends Activity {
         
         // Additional flags to minimize browser UI
         intent.putExtra("android.support.customtabs.extra.HIDE_NAVIGATION_BAR", true);
-        intent.putExtra("android.support.customtabs.extra.CLOSE_BUTTON_POSITION", 1); // Hide close button
+        intent.putExtra("android.support.customtabs.extra.CLOSE_BUTTON_POSITION", 1);
         
-        // Fullscreen launch flags
-        intent.addFlags(Intent.FLAG_ACTIVITY_NO_HISTORY);
+        // Critical: Don't use NO_HISTORY - we need to stay alive for file picker results
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        intent.addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+        
+        // Grant URI read/write permissions to browser for file access
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        intent.addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
         
         // Set package if Custom Tabs browser found
         if (packageName != null) {
             intent.setPackage(packageName);
-            Log.d(TAG, "Launching Custom Tab with minimal UI: " + packageName);
+            Log.d(TAG, "Launching Custom Tab with file access: " + packageName);
         } else {
             Log.d(TAG, "No Custom Tabs support, using default browser");
         }
@@ -502,18 +635,24 @@ public class MainActivity extends Activity {
         try {
             startActivity(intent);
             
-            // Finish without animation for seamless transition
-            finish();
-            overridePendingTransition(0, 0);
+            // Don't finish - stay alive in background to support file picker activity stack
+            // Move to back so we're invisible but alive
+            moveTaskToBack(true);
+            
+            Log.d(TAG, "Browser launched, launcher moved to background");
         } catch (ActivityNotFoundException e) {
             Log.e(TAG, "No browser found", e);
             Toast.makeText(this, "No browser installed", Toast.LENGTH_LONG).show();
+            finish();
+        } catch (SecurityException e) {
+            Log.e(TAG, "Security exception launching browser", e);
+            Toast.makeText(this, "Permission error - please grant file access", Toast.LENGTH_LONG).show();
             finish();
         }
     }
     
     private String getCustomTabsPackage() {
-        // Prioritize browsers with best fullscreen support
+        // Prioritize browsers with best fullscreen and file handling support
         String[] packages = {
             "com.android.chrome",              // Chrome - best Custom Tabs support
             "com.chrome.beta",
@@ -553,8 +692,25 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        // If user comes back to this activity, close it
-        finish();
+        
+        // If browser was launched and user returns here, finish quietly
+        if (hasLaunchedBrowser) {
+            Log.d(TAG, "User returned to launcher, finishing");
+            finish();
+        }
+    }
+    
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        // Handle any new intents while in background
+        Log.d(TAG, "New intent received");
+    }
+    
+    @Override
+    public void onBackPressed() {
+        // Don't allow back button - just move to background
+        moveTaskToBack(true);
     }
 }
 JAVACODE
@@ -667,8 +823,15 @@ JAVACODE
     echo "  ✓ Supports Chrome, Edge, Firefox, Brave, Samsung"
     echo "  ✓ Custom icon support"
     echo "  ✓ Minimal size (~15KB)"
+    echo "  ✓ Full file access permissions (read/write)"
+    echo "  ✓ File picker support for WebCrypto and uploads"
+    echo "  ✓ Proper activity stack management (no crashes)"
+    echo "  ✓ Transparent launcher (stays alive in background)"
+    echo "  ✓ Android 6-14 compatibility"
     echo ""
     echo -e "${YELLOW}Note: URL bar may briefly appear on load (security feature)${NC}"
+    echo -e "${YELLOW}Note: App will request file permissions on first launch${NC}"
+    echo -e "${YELLOW}Note: Launcher stays in background to support file pickers${NC}"
     echo ""
     echo -e "${BLUE}Install: adb install \"$APK_PATH\"${NC}"
     echo ""
