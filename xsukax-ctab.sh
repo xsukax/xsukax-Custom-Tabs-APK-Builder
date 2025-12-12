@@ -1,12 +1,13 @@
 #!/bin/bash
 #
-# xsukax Custom Tabs APK Builder (Enhanced Version)
+# xsukax Custom Tabs APK Builder
 # Automatic dependency management for Debian-based systems
 # No external dependencies - uses Android's built-in Custom Tabs support
 # Custom icon support (icon.png)
+# Minimal permissions - only INTERNET required
 #
 # Author: xsukax
-# Repository: https://github.com/xsukax
+# Repository: https://github.com/xsukax/xsukax-Custom-Tabs-APK-Builder
 # License: GPL-3.0
 #
 
@@ -31,8 +32,7 @@ print_banner() {
     echo -e "${CYAN}"
     echo "╔═══════════════════════════════════════════════════════════╗"
     echo "║                                                           ║"
-    echo "║         xsukax Custom Tabs APK Builder v2.0               ║"
-    echo "║         Enhanced with Dependency Management               ║"
+    echo "║         xsukax Custom Tabs APK Builder                    ║"
     echo "║                                                           ║"
     echo "║         Author: xsukax                                    ║"
     echo "║         No External Dependencies Required                 ║"
@@ -268,7 +268,51 @@ verify_dependencies() {
 }
 
 # ============================================================================
-# MAIN APK BUILD LOGIC (ORIGINAL FUNCTIONALITY PRESERVED)
+# ICON GENERATION FUNCTION
+# ============================================================================
+
+create_icons() {
+    if [ -n "$CUSTOM_ICON" ] && [ -f "$CUSTOM_ICON" ]; then
+        echo -e "${BLUE}[*] Processing custom icon...${NC}"
+        if command -v convert &> /dev/null; then
+            convert "$CUSTOM_ICON" -resize 48x48 src/main/res/mipmap-mdpi/ic_launcher.png
+            convert "$CUSTOM_ICON" -resize 72x72 src/main/res/mipmap-hdpi/ic_launcher.png
+            convert "$CUSTOM_ICON" -resize 96x96 src/main/res/mipmap-xhdpi/ic_launcher.png
+            convert "$CUSTOM_ICON" -resize 144x144 src/main/res/mipmap-xxhdpi/ic_launcher.png
+            convert "$CUSTOM_ICON" -resize 192x192 src/main/res/mipmap-xxxhdpi/ic_launcher.png
+            echo -e "${GREEN}[✓] Custom icon processed${NC}"
+        else
+            cp "$CUSTOM_ICON" src/main/res/mipmap-mdpi/ic_launcher.png
+            cp "$CUSTOM_ICON" src/main/res/mipmap-hdpi/ic_launcher.png
+            cp "$CUSTOM_ICON" src/main/res/mipmap-xhdpi/ic_launcher.png
+            cp "$CUSTOM_ICON" src/main/res/mipmap-xxhdpi/ic_launcher.png
+            cp "$CUSTOM_ICON" src/main/res/mipmap-xxxhdpi/ic_launcher.png
+            echo -e "${GREEN}[✓] Custom icon copied${NC}"
+        fi
+    else
+        echo -e "${BLUE}[*] Generating default icon...${NC}"
+        if command -v python3 &> /dev/null; then
+            python3 << 'PYICON'
+import zlib, struct
+def png(w,h,r,g,b):
+    def chunk(t,d):
+        return struct.pack('>I',len(d))+t+d+struct.pack('>I',zlib.crc32(t+d)&0xffffffff)
+    raw = b''.join([b'\x00'+bytes([r,g,b])*w for _ in range(h)])
+    return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',w,h,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(raw,9))+chunk(b'IEND',b'')
+for s,d in [(48,'mdpi'),(72,'hdpi'),(96,'xhdpi'),(144,'xxhdpi'),(192,'xxxhdpi')]:
+    open(f'src/main/res/mipmap-{d}/ic_launcher.png','wb').write(png(s,s,33,150,243))
+PYICON
+        else
+            for dir in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+                printf '\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90\x77\x53\xde\x00\x00\x00\x0c\x49\x44\x41\x54\x08\xd7\x63\x48\x6d\xfc\x00\x00\x00\x89\x00\x51\x0d\x3a\x28\x25\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82' > "src/main/res/mipmap-$dir/ic_launcher.png"
+            done
+        fi
+        echo -e "${GREEN}[✓] Default icon created${NC}"
+    fi
+}
+
+# ============================================================================
+# MAIN APK BUILD LOGIC
 # ============================================================================
 
 build_apk() {
@@ -343,42 +387,26 @@ build_apk() {
     mkdir -p src/main/res/{mipmap-mdpi,mipmap-hdpi,mipmap-xhdpi,mipmap-xxhdpi,mipmap-xxxhdpi}
     mkdir -p build/{gen,obj,apk}
 
-    # AndroidManifest.xml
-    cat > src/main/AndroidManifest.xml << MANIFEST
+    # ========================================================================
+    # AndroidManifest.xml - Minimal permissions (only INTERNET)
+    # ========================================================================
+    cat > src/main/AndroidManifest.xml << 'MANIFEST_EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
-    package="$PACKAGE_NAME"
+    package="__PACKAGE_NAME__"
     android:versionCode="1"
     android:versionName="1.0">
 
     <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34" />
 
-    <!-- Internet permission -->
+    <!-- Only INTERNET permission required - browser handles file access -->
     <uses-permission android:name="android.permission.INTERNET" />
-    
-    <!-- File access permissions for all Android versions -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" 
-        android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="32" />
-    
-    <!-- Android 13+ (API 33+) granular media permissions -->
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-    
-    <!-- For accessing all files (Android 11+) -->
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" 
-        tools:ignore="ScopedStorage" />
 
     <application
-        android:label="$APP_NAME"
+        android:label="__APP_NAME__"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/AppTheme"
-        android:hardwareAccelerated="true"
-        android:requestLegacyExternalStorage="true"
-        android:preserveLegacyExternalStorage="true">
+        android:hardwareAccelerated="true">
 
         <activity
             android:name=".MainActivity"
@@ -394,31 +422,38 @@ build_apk() {
         </activity>
     </application>
 </manifest>
-MANIFEST
+MANIFEST_EOF
 
-    # Convert hex color to decimal for Android
-    TOOLBAR_COLOR_DEC=$(printf "%d" "0x${TOOLBAR_COLOR#\#}FF")
+    # Replace placeholders in manifest
+    sed -i "s/__PACKAGE_NAME__/$PACKAGE_NAME/g" src/main/AndroidManifest.xml
+    sed -i "s/__APP_NAME__/$APP_NAME/g" src/main/AndroidManifest.xml
 
+    # ========================================================================
     # strings.xml
-    cat > src/main/res/values/strings.xml << STRINGS
+    # ========================================================================
+    cat > src/main/res/values/strings.xml << STRINGS_EOF
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">$APP_NAME</string>
     <string name="website_url">$WEBSITE_URL</string>
     <color name="toolbar_color">$TOOLBAR_COLOR</color>
 </resources>
-STRINGS
+STRINGS_EOF
 
+    # ========================================================================
     # Dark theme support
-    cat > src/main/res/values-night/strings.xml << STRINGS_NIGHT
+    # ========================================================================
+    cat > src/main/res/values-night/strings.xml << 'STRINGS_NIGHT_EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="toolbar_color">#1A1A1A</color>
 </resources>
-STRINGS_NIGHT
+STRINGS_NIGHT_EOF
 
-    # Theme
-    cat > src/main/res/values/styles.xml << STYLES
+    # ========================================================================
+    # Theme with transparency
+    # ========================================================================
+    cat > src/main/res/values/styles.xml << 'STYLES_EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar">
@@ -431,28 +466,25 @@ STRINGS_NIGHT
         <item name="android:backgroundDimEnabled">false</item>
     </style>
 </resources>
-STYLES
+STYLES_EOF
 
-    # Icons - use custom or generate
+    # Generate icons
     create_icons
 
-    # MainActivity.java - Using built-in Android Custom Tabs APIs with aggressive UI hiding
-    cat > "src/main/java/$PKG_PATH/MainActivity.java" << 'JAVACODE'
-package __PKG__;
+    # ========================================================================
+    # MainActivity.java - No permission requests, just browser launch
+    # ========================================================================
+    cat > "src/main/java/$PKG_PATH/MainActivity.java" << 'JAVACODE_EOF'
+package __PACKAGE_NAME__;
 
-import android.Manifest;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
-import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
-import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
-import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
 import android.view.WindowManager;
@@ -463,9 +495,6 @@ import java.util.List;
 
 public class MainActivity extends Activity {
     private static final String TAG = "CustomTabsApp";
-    private static final int PERMISSION_REQUEST_CODE = 1001;
-    private String pendingUrl;
-    private int pendingToolbarColor;
     private boolean hasLaunchedBrowser = false;
     
     @Override
@@ -502,88 +531,7 @@ public class MainActivity extends Activity {
             getResources().getIdentifier("toolbar_color", "color", getPackageName())
         );
         
-        // Check and request permissions before launching
-        if (checkAndRequestPermissions()) {
-            launchCustomTab(url, toolbarColor);
-        } else {
-            // Store for later launch after permissions granted
-            pendingUrl = url;
-            pendingToolbarColor = toolbarColor;
-        }
-    }
-    
-    private boolean checkAndRequestPermissions() {
-        List<String> permissionsNeeded = new ArrayList<>();
-        
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            // Android 13+ (API 33+) - Granular media permissions
-            if (checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED) {
-                permissionsNeeded.add(Manifest.permission.READ_MEDIA_IMAGES);
-            }
-            if (checkSelfPermission(Manifest.permission.READ_MEDIA_VIDEO) != PackageManager.PERMISSION_GRANTED) {
-                permissionsNeeded.add(Manifest.permission.READ_MEDIA_VIDEO);
-            }
-            if (checkSelfPermission(Manifest.permission.READ_MEDIA_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                permissionsNeeded.add(Manifest.permission.READ_MEDIA_AUDIO);
-            }
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            // Android 6-12 (API 23-32)
-            if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                permissionsNeeded.add(Manifest.permission.READ_EXTERNAL_STORAGE);
-            }
-            if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                permissionsNeeded.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
-            }
-        }
-        
-        // Request MANAGE_EXTERNAL_STORAGE for Android 11+ (API 30+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!Environment.isExternalStorageManager()) {
-                try {
-                    Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
-                    intent.setData(Uri.parse("package:" + getPackageName()));
-                    startActivity(intent);
-                    Log.d(TAG, "Requesting MANAGE_EXTERNAL_STORAGE permission");
-                } catch (Exception e) {
-                    Log.e(TAG, "Failed to request MANAGE_EXTERNAL_STORAGE", e);
-                }
-            }
-        }
-        
-        if (!permissionsNeeded.isEmpty()) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                requestPermissions(permissionsNeeded.toArray(new String[0]), PERMISSION_REQUEST_CODE);
-                return false;
-            }
-        }
-        
-        return true;
-    }
-    
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        
-        if (requestCode == PERMISSION_REQUEST_CODE) {
-            boolean allGranted = true;
-            for (int result : grantResults) {
-                if (result != PackageManager.PERMISSION_GRANTED) {
-                    allGranted = false;
-                    break;
-                }
-            }
-            
-            if (allGranted) {
-                Log.d(TAG, "All permissions granted");
-            } else {
-                Log.w(TAG, "Some permissions denied, app may have limited functionality");
-            }
-            
-            // Launch regardless - browser will handle its own permissions
-            if (pendingUrl != null) {
-                launchCustomTab(pendingUrl, pendingToolbarColor);
-            }
-        }
+        launchCustomTab(url, toolbarColor);
     }
     
     private void launchCustomTab(String url, int toolbarColor) {
@@ -594,7 +542,7 @@ public class MainActivity extends Activity {
         
         String packageName = getCustomTabsPackage();
         
-        // Build Custom Tabs intent with file access support
+        // Build Custom Tabs intent with minimal UI
         Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
         
         // Custom Tabs extras for minimal UI
@@ -614,20 +562,14 @@ public class MainActivity extends Activity {
         intent.putExtra("android.support.customtabs.extra.HIDE_NAVIGATION_BAR", true);
         intent.putExtra("android.support.customtabs.extra.CLOSE_BUTTON_POSITION", 1);
         
-        // Critical: Don't use NO_HISTORY - we need to stay alive for file picker results
+        // Critical: Don't use NO_HISTORY - we need to stay alive for file picker activity stack
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         intent.addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
-        
-        // Grant URI read/write permissions to browser for file access
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-        intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-        intent.addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
         
         // Set package if Custom Tabs browser found
         if (packageName != null) {
             intent.setPackage(packageName);
-            Log.d(TAG, "Launching Custom Tab with file access: " + packageName);
+            Log.d(TAG, "Launching Custom Tab: " + packageName);
         } else {
             Log.d(TAG, "No Custom Tabs support, using default browser");
         }
@@ -639,20 +581,20 @@ public class MainActivity extends Activity {
             // Move to back so we're invisible but alive
             moveTaskToBack(true);
             
-            Log.d(TAG, "Browser launched, launcher moved to background");
+            Log.d(TAG, "Browser launched successfully");
         } catch (ActivityNotFoundException e) {
             Log.e(TAG, "No browser found", e);
             Toast.makeText(this, "No browser installed", Toast.LENGTH_LONG).show();
             finish();
-        } catch (SecurityException e) {
-            Log.e(TAG, "Security exception launching browser", e);
-            Toast.makeText(this, "Permission error - please grant file access", Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Log.e(TAG, "Error launching browser", e);
+            Toast.makeText(this, "Error opening browser", Toast.LENGTH_LONG).show();
             finish();
         }
     }
     
     private String getCustomTabsPackage() {
-        // Prioritize browsers with best fullscreen and file handling support
+        // Prioritize browsers with best Custom Tabs and file handling support
         String[] packages = {
             "com.android.chrome",              // Chrome - best Custom Tabs support
             "com.chrome.beta",
@@ -713,15 +655,17 @@ public class MainActivity extends Activity {
         moveTaskToBack(true);
     }
 }
-JAVACODE
+JAVACODE_EOF
 
-    # Replace placeholders
-    sed -i "s/__PKG__/$PACKAGE_NAME/g" "src/main/java/$PKG_PATH/MainActivity.java"
+    # Replace package name placeholder in Java code
+    sed -i "s/__PACKAGE_NAME__/$PACKAGE_NAME/g" "src/main/java/$PKG_PATH/MainActivity.java"
 
-    echo -e "${GREEN}[✓] MainActivity created${NC}"
+    echo -e "${GREEN}[✓] MainActivity created (no permission requests)${NC}"
 
+    # ========================================================================
     # Compile Java
-    echo -e "${BLUE}[*] Compiling...${NC}"
+    # ========================================================================
+    echo -e "${BLUE}[*] Compiling Java code...${NC}"
 
     javac -source 1.8 -target 1.8 \
         -bootclasspath "$ANDROID_JAR" \
@@ -736,7 +680,11 @@ JAVACODE
 
     echo -e "${GREEN}[✓] Java compiled${NC}"
 
+    # ========================================================================
     # Generate R.java
+    # ========================================================================
+    echo -e "${BLUE}[*] Generating R.java...${NC}"
+    
     "$AAPT" package -f -m \
         -S src/main/res \
         -M src/main/AndroidManifest.xml \
@@ -757,13 +705,21 @@ JAVACODE
 
     echo -e "${GREEN}[✓] Resources compiled${NC}"
 
-    # DEX
+    # ========================================================================
+    # Create DEX
+    # ========================================================================
+    echo -e "${BLUE}[*] Creating DEX file...${NC}"
+    
     CLASS_FILES=$(find build/obj -name "*.class")
     "$D8" --lib "$ANDROID_JAR" --output build/apk $CLASS_FILES 2>&1
 
     echo -e "${GREEN}[✓] DEX created${NC}"
 
+    # ========================================================================
     # Package APK
+    # ========================================================================
+    echo -e "${BLUE}[*] Packaging APK...${NC}"
+    
     "$AAPT" package -f \
         -M src/main/AndroidManifest.xml \
         -S src/main/res \
@@ -775,12 +731,20 @@ JAVACODE
     zip -q -u ../unsigned.apk classes.dex
     cd ../..
 
-    # Align
+    # ========================================================================
+    # Align APK
+    # ========================================================================
+    echo -e "${BLUE}[*] Aligning APK...${NC}"
+    
     "$ZIPALIGN" -f 4 build/unsigned.apk build/aligned.apk
 
-    echo -e "${GREEN}[✓] APK packaged${NC}"
+    echo -e "${GREEN}[✓] APK aligned${NC}"
 
-    # Sign
+    # ========================================================================
+    # Sign APK
+    # ========================================================================
+    echo -e "${BLUE}[*] Signing APK...${NC}"
+    
     KEYSTORE="$HOME/.android/debug.keystore"
     if [ ! -f "$KEYSTORE" ]; then
         mkdir -p "$HOME/.android"
@@ -806,6 +770,9 @@ JAVACODE
     APK_PATH="$(pwd)/build/$PROJECT.apk"
     APK_SIZE=$(du -h "$APK_PATH" | cut -f1)
 
+    # ========================================================================
+    # Build Success Summary
+    # ========================================================================
     echo ""
     echo -e "${GREEN}╔═══════════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║              BUILD SUCCESSFUL! 🎉                         ║${NC}"
@@ -822,63 +789,22 @@ JAVACODE
     echo "  ✓ Opens in user's default browser"
     echo "  ✓ Supports Chrome, Edge, Firefox, Brave, Samsung"
     echo "  ✓ Custom icon support"
-    echo "  ✓ Minimal size (~15KB)"
-    echo "  ✓ Full file access permissions (read/write)"
-    echo "  ✓ File picker support for WebCrypto and uploads"
-    echo "  ✓ Proper activity stack management (no crashes)"
+    echo "  ✓ Ultra-minimal size (~12-15KB)"
     echo "  ✓ Transparent launcher (stays alive in background)"
-    echo "  ✓ Android 6-14 compatibility"
+    echo "  ✓ File picker support (browser handles permissions)"
+    echo "  ✓ Zero permission prompts (only INTERNET needed)"
+    echo "  ✓ Android 5.0+ (API 21+) compatibility"
     echo ""
-    echo -e "${YELLOW}Note: URL bar may briefly appear on load (security feature)${NC}"
-    echo -e "${YELLOW}Note: App will request file permissions on first launch${NC}"
-    echo -e "${YELLOW}Note: Launcher stays in background to support file pickers${NC}"
+    echo -e "${CYAN}Permissions: ${NC}Only INTERNET (browser handles all file access)"
+    echo -e "${YELLOW}Note: URL bar may briefly appear on load (browser security)${NC}"
+    echo -e "${YELLOW}Note: Launcher stays invisible in background for file pickers${NC}"
     echo ""
     echo -e "${BLUE}Install: adb install \"$APK_PATH\"${NC}"
     echo ""
     echo -e "${CYAN}───────────────────────────────────────────────────────────${NC}"
-    echo -e "${CYAN}Built with xsukax Custom Tabs APK Builder${NC}"
+    echo -e "${CYAN}Built with xsukax Custom Tabs APK Builder v3.0${NC}"
     echo -e "${CYAN}https://github.com/xsukax${NC}"
     echo -e "${CYAN}───────────────────────────────────────────────────────────${NC}"
-}
-
-create_icons() {
-    if [ -n "$CUSTOM_ICON" ] && [ -f "$CUSTOM_ICON" ]; then
-        echo -e "${BLUE}[*] Processing custom icon...${NC}"
-        if command -v convert &> /dev/null; then
-            convert "$CUSTOM_ICON" -resize 48x48 src/main/res/mipmap-mdpi/ic_launcher.png
-            convert "$CUSTOM_ICON" -resize 72x72 src/main/res/mipmap-hdpi/ic_launcher.png
-            convert "$CUSTOM_ICON" -resize 96x96 src/main/res/mipmap-xhdpi/ic_launcher.png
-            convert "$CUSTOM_ICON" -resize 144x144 src/main/res/mipmap-xxhdpi/ic_launcher.png
-            convert "$CUSTOM_ICON" -resize 192x192 src/main/res/mipmap-xxxhdpi/ic_launcher.png
-            echo -e "${GREEN}[✓] Custom icon processed${NC}"
-        else
-            cp "$CUSTOM_ICON" src/main/res/mipmap-mdpi/ic_launcher.png
-            cp "$CUSTOM_ICON" src/main/res/mipmap-hdpi/ic_launcher.png
-            cp "$CUSTOM_ICON" src/main/res/mipmap-xhdpi/ic_launcher.png
-            cp "$CUSTOM_ICON" src/main/res/mipmap-xxhdpi/ic_launcher.png
-            cp "$CUSTOM_ICON" src/main/res/mipmap-xxxhdpi/ic_launcher.png
-            echo -e "${GREEN}[✓] Custom icon copied${NC}"
-        fi
-    else
-        echo -e "${BLUE}[*] Generating default icon...${NC}"
-        if command -v python3 &> /dev/null; then
-            python3 << 'PYICON'
-import zlib, struct
-def png(w,h,r,g,b):
-    def chunk(t,d):
-        return struct.pack('>I',len(d))+t+d+struct.pack('>I',zlib.crc32(t+d)&0xffffffff)
-    raw = b''.join([b'\x00'+bytes([r,g,b])*w for _ in range(h)])
-    return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',w,h,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(raw,9))+chunk(b'IEND',b'')
-for s,d in [(48,'mdpi'),(72,'hdpi'),(96,'xhdpi'),(144,'xxhdpi'),(192,'xxxhdpi')]:
-    open(f'src/main/res/mipmap-{d}/ic_launcher.png','wb').write(png(s,s,33,150,243))
-PYICON
-        else
-            for dir in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-                printf '\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90\x77\x53\xde\x00\x00\x00\x0c\x49\x44\x41\x54\x08\xd7\x63\x48\x6d\xfc\x00\x00\x00\x89\x00\x51\x0d\x3a\x28\x25\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82' > "src/main/res/mipmap-$dir/ic_launcher.png"
-            done
-        fi
-        echo -e "${GREEN}[✓] Default icon created${NC}"
-    fi
 }
 
 # ============================================================================
